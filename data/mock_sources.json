@@ -1,0 +1,40 @@
+{
+    "Clinical Study Reports": [
+        {
+            "study_id": "NCT04561234",
+            "title": "Phase 3 Study of Daratumumab vs Standard of Care in MM",
+            "disease": {"term": "Multiple Myeloma", "therapeutic_area": "Hematological Malignancy", "snomed_code": "109989006"},
+            "treatment": {"regimen": "Daratumumab 1800mg SubQ", "active_ingredient": "Daratumumab", "mechanism_of_action": "CD38-directed cytolytic antibody"},
+            "comparator": {"regimen": "Lenalidomide / Dexamethasone", "active_ingredient": "Lenalidomide", "mechanism_of_action": "Immunomodulatory imide drug"}
+        },
+        {
+            "study_id": "NCT02665364",
+            "title": "Phase 1/2 Study of Amivantamab in Advanced NSCLC",
+            "disease": {"term": "Non-Small Cell Lung Cancer (NSCLC)", "therapeutic_area": "Solid Tumors", "snomed_code": "254637007"},
+            "treatment": {"regimen": "Amivantamab-vmjw 1050mg IV", "active_ingredient": "Amivantamab", "mechanism_of_action": "EGFR/MET bispecific antibody"},
+            "comparator": {"regimen": "Platinum-based Chemotherapy", "active_ingredient": "Cisplatin", "mechanism_of_action": "Alkylating antineoplastic agent"}
+        },
+        {
+            "study_id": "NCT03145181",
+            "title": "Phase 1/2 Study of Teclistamab in Relapsed/Refractory MM",
+            "disease": {"term": "Refractory Multiple Myeloma", "therapeutic_area": "Hematological Malignancy", "snomed_code": "109989006_R"},
+            "treatment": {"regimen": "Teclistamab 1.5 mg/kg SubQ", "active_ingredient": "Teclistamab", "mechanism_of_action": "BCMA/CD3 bispecific antibody"},
+            "comparator": {"regimen": "Carfilzomib / Dexamethasone", "active_ingredient": "Carfilzomib", "mechanism_of_action": "Proteasome inhibitor"}
+        }
+    ],
+    "Protocols & Amendments": [
+        {"study_id": "NCT04561234", "population": {"description": "Adults >= 18y with confirmed MM", "biomarker": "CD38+ plasma cells >= 10%"}},
+        {"study_id": "NCT02665364", "population": {"description": "NSCLC patients post-platinum therapy", "biomarker": "EGFR Exon 20 insertion mutation"}},
+        {"study_id": "NCT03145181", "population": {"description": "Triple-class exposed MM patients", "biomarker": "BCMA positive expression"}}
+    ],
+    "Safety / RIM Content": [
+        {"study_id": "NCT04561234", "safety_report": {"report_id": "SR-DARA-99", "adverse_event": "Severe Neutropenia", "meddra_pt": "Neutrophil count decreased", "meddra_soc": "Blood and lymphatic system disorders"}},
+        {"study_id": "NCT02665364", "safety_report": {"report_id": "SR-AMIV-42", "adverse_event": "Infusion Related Reaction", "meddra_pt": "Infusion related reaction", "meddra_soc": "Injury, poisoning and procedural complications"}},
+        {"study_id": "NCT03145181", "safety_report": {"report_id": "SR-TECL-11", "adverse_event": "Cytokine Release Syndrome", "meddra_pt": "Cytokine release syndrome", "meddra_soc": "Immune system disorders"}}
+    ],
+    "Scientific Responses": [
+        {"study_id": "NCT04561234", "response_doc": {"doc_id": "SciRes-DARA", "inquiry_topic": "SubQ Admin in Renal Impairment", "medical_concept": "Pharmacokinetics (PK)"}},
+        {"study_id": "NCT02665364", "response_doc": {"doc_id": "SciRes-AMIV", "inquiry_topic": "Dosing in Hepatic Impairment", "medical_concept": "Hepatotoxicity Management"}},
+        {"study_id": "NCT03145181", "response_doc": {"doc_id": "SciRes-TECL", "inquiry_topic": "ICANS and Neurologic Toxicity", "medical_concept": "Neurotoxicity (ICANS)"}}
+    ]
+}

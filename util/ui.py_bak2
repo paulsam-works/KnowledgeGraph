@@ -1,0 +1,172 @@
+import gradio as gr
+from agent import orchestrator, GraphRAGState
+from ontology import kg
+from visualization import generate_graph_html
+
+# -------------------------------------------------------------------
+# 1. CORE SEARCH LOGIC PIPELINE
+# -------------------------------------------------------------------
+def search_pipeline(query: str, doc_type: str, drug_ipmts: str, drug_comp: str, doc_search_only: bool):
+    if not query.strip():
+        return "", "", "", "Please enter a clinical query.", generate_graph_html(kg)
+
+    filters = {
+        "Document Type": doc_type,
+        "Drug - IPMTS": drug_ipmts,
+        "Drug - Competitor": drug_comp,
+        "Document Search Only": doc_search_only
+    }
+
+    state_input: GraphRAGState = {
+        "query": query,
+        "selected_filters": filters,
+        "intent": "",
+        "sparql_query": "",
+        "traversed_nodes": [],
+        "traversed_edges": [],
+        "graph_evidence": [],
+        "final_response": "",
+        "grounding_score": "",
+        "citations": []
+    }
+
+    result = orchestrator.invoke(state_input)
+
+    response_text = result["final_response"]
+    citations_text = "\n".join([f"• {c}" for c in result["citations"]])
+    grounding_badge = f"**Identified Intent:** `{result['intent']}` | **Grounding Score:** `{result['grounding_score']}` | **Graph Nodes Traversed:** `{len(result['traversed_nodes'])}`"
+
+    # Re-render graph canvas highlighting active traversal pathways
+    highlighted_graph_html = generate_graph_html(
+        kg_graph=kg,
+        active_nodes=result["traversed_nodes"],
+        active_edges=result["traversed_edges"]
+    )
+
+    return grounding_badge, response_text, citations_text, result["sparql_query"], highlighted_graph_html
+
+
+# -------------------------------------------------------------------
+# 2. ENHANCED PRESENTATION LAYER (CSS & THEME)
+# -------------------------------------------------------------------
+custom_css = """
+/* Typography & Headers */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+body, .gradio-container { font-family: 'Inter', sans-serif !important; }
+
+#main-title { font-size: 32px; font-weight: 700; color: #ffffff; margin-bottom: 4px; }
+#main-title span { background-color: #d51900; color: white; padding: 4px 10px; border-radius: 6px; }
+#sub-title { font-size: 14px; color: #a0a0a0; margin-bottom: 20px; font-weight: 400; }
+
+/* Customizing Buttons */
+.gr-button-primary { 
+    background: linear-gradient(135deg, #d51900 0%, #b71c1c 100%) !important; 
+    border: none !important; 
+    color: white !important; 
+    box-shadow: 0 4px 12px rgba(213, 25, 0, 0.3) !important;
+    transition: all 0.2s ease;
+}
+.gr-button-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(213, 25, 0, 0.4) !important;
+}
+
+/* Tab Styling */
+.tabs { border-bottom: 1px solid #333 !important; border-top: none !important; border-left: none !important; border-right: none !important; }
+.tab-nav { border: none !important; margin-bottom: 15px !important; }
+.tab-nav button { border: none !important; font-weight: 600 !important; color: #888 !important; padding: 10px 15px !important; }
+.tab-nav button.selected { color: #d51900 !important; border-bottom: 2px solid #d51900 !important; background: transparent !important; }
+"""
+
+my_theme = gr.themes.Soft(
+    primary_hue="red",
+    neutral_hue="slate",
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+    radius_size=gr.themes.sizes.radius_md,
+).set(
+    body_background_fill="*neutral_950",
+    block_background_fill="*neutral_900",
+    block_border_width="1px",
+    block_border_color="*neutral_800",
+)
+
+
+# -------------------------------------------------------------------
+# 3. GRADIO LAYOUT INSTANTIATION
+# -------------------------------------------------------------------
+with gr.Blocks(theme=my_theme, css=custom_css, title="iMedical Search") as demo:
+    gr.HTML(
+        """<div style='text-align: center; margin-top: 20px; margin-bottom: 25px;'>
+            <div id='main-title'>iMedical <span>Search</span></div>
+            <div id='sub-title'>Connected Evidence and Clinical Semantics (GraphRAG Powered)</div>
+        </div>"""
+    )
+
+    with gr.Row():
+        # LEFT COLUMN - Wrapped in a Group for a "Card" effect
+        with gr.Column(scale=1, min_width=300):
+            with gr.Group():
+                gr.Markdown("### ⚙️ Search Filters & Facets")
+                doc_type_dropdown = gr.Dropdown(
+                    label="Document Type",
+                    choices=["All", "Clinical Study Reports", "Protocols & Amendments", "Safety / RIM Content", "Scientific Responses"],
+                    value="All"
+                )
+                drug_impts_dropdown = gr.Dropdown(
+                    label="Drugs - IPMTS",
+                    choices=["All", "Daratumumab SubQ", "Amivantamab", "Teclistamab"],
+                    value="All"
+                )
+                drug_comp_dropdown = gr.Dropdown(
+                    label="Drugs - Competitor",
+                    choices=["All", "Lenalidomide / Dexamethasone", "Platinum-based Chemotherapy", "Carfilzomib / Dexamethasone"],
+                    value="All"
+                )
+                doc_search_only_cb = gr.Checkbox(label="Document Search Only", value=False)
+            
+            gr.Markdown("<br>**Clinical Governance & Traceability**<br><span style='color:#888; font-size:12px;'><i>Ontology grounded across MedDRA, SNOMED CT, and CDISC.</i></span>")
+
+        # RIGHT COLUMN
+        with gr.Column(scale=3):
+            # Group the search box and button to create a unified search bar
+            with gr.Group():
+                with gr.Row(equal_height=True):
+                    search_box = gr.Textbox(
+                        show_label=False,
+                        placeholder="Search clinical endpoints, safety signals, mechanisms of action, or biomarkers...",
+                        container=False, 
+                        scale=9
+                    )
+                    search_btn = gr.Button("Search / Run AI", variant="primary", scale=2, min_width=150)
+
+            grounding_display = gr.Markdown("")
+
+            with gr.Tabs():
+                with gr.TabItem("Connected Intelligence Answer"):
+                    answer_display = gr.Markdown()
+
+                with gr.TabItem("Knowledge Graph & Traversal"):
+                    gr.Markdown("#### 🕸️ Live Graph Traversal Pathway Execution")
+                    kg_html_display = gr.HTML(value=generate_graph_html(kg))
+                    gr.Markdown("> **Visualization Guide:** The active semantic path is highlighted in **bold crimson edges** with **gold glowing nodes**.")
+
+                with gr.TabItem("Evidence Linkage & Citations"):
+                    citations_display = gr.Markdown()
+
+                with gr.TabItem("Generated SPARQL Query"):
+                    sparql_display = gr.Code(language="sql")
+
+    # Wire actions
+    search_btn.click(
+        fn=search_pipeline,
+        inputs=[search_box, doc_type_dropdown, drug_impts_dropdown, drug_comp_dropdown, doc_search_only_cb],
+        outputs=[grounding_display, answer_display, citations_display, sparql_display, kg_html_display]
+    )
+    search_box.submit(
+        fn=search_pipeline,
+        inputs=[search_box, doc_type_dropdown, drug_impts_dropdown, drug_comp_dropdown, doc_search_only_cb],
+        outputs=[grounding_display, answer_display, citations_display, sparql_display, kg_html_display]
+    )
+
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=7860)
