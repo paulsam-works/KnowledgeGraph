@@ -15,9 +15,14 @@ from langchain_openai import ChatOpenAI
 
 from ontology import kg, CTI
 from data_loader import MOCK_SOURCES
+from dotenv import load_dotenv
 
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "your-openai-api-key")
 
+#os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "your-openai-api-key")
+
+
+# Find and load the .env file
+load_dotenv()
 
 class GraphRAGState(TypedDict):
     """Mutable state passed between LangGraph nodes for a single user search."""
@@ -45,7 +50,76 @@ def intent_router_node(state: GraphRAGState) -> Dict[str, Any]:
     res = llm.invoke([HumanMessage(content=prompt)]).content.strip()
     return {"intent": res}
 
+
 def sparql_generator_and_traversal_node(state: GraphRAGState) -> Dict[str, Any]:
+    query_text = state["query"]
+
+    # 1. DYNAMIC SPARQL CONSTRUCT GENERATION
+    # We provide the ontology schema to the LLM so it knows exactly how to map the multi-hop paths.
+    sparql_prompt = f"""You are an expert in RDF and SPARQL for Clinical Knowledge Graphs.
+Generate a valid SPARQL CONSTRUCT query that extracts the exact semantic pathway for this user query: "{query_text}"
+
+ONTOLOGY SCHEMA:
+PREFIX cti: <https://w3id.org/cti/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+- cti:ClinicalStudy -> usesTreatment -> cti:Treatment -> hasActiveIngredient -> cti:ActiveIngredient -> hasMechanismOfAction -> cti:MechanismOfAction
+- cti:ClinicalStudy -> usesComparator -> cti:ComparatorTreatment ... (same as above)
+- cti:ClinicalStudy -> targetsDisease -> cti:DiseaseCondition -> belongsToTherapeuticArea -> cti:TherapeuticArea
+- cti:ClinicalStudy -> hasPopulation -> cti:Population -> requiresBiomarker -> cti:Biomarker
+- cti:ClinicalStudy -> hasSafetyReport -> cti:SafetyReport -> reportsEvent -> cti:AdverseEvent -> mappedToPT -> cti:MedDRAPT -> belongsToSOC -> cti:MedDRASOC
+- cti:ClinicalStudy -> hasScientificResponse -> cti:ScientificResponseDoc -> addressesTopic -> cti:InquiryTopic -> relatesToConcept -> cti:MedicalConcept
+
+RULES:
+1. You MUST output a CONSTRUCT query: CONSTRUCT {{ ?s ?p ?o . ... }} WHERE {{ ?s ?p ?o . ... }}
+2. Use FILTER(REGEX(str(?label), "keyword", "i")) on rdfs:label to match user keywords (e.g., "amivantamab", "safety", "biomarker").
+3. Construct the FULL chain of triples (from ClinicalStudy down to the leaf node) so the UI can trace the complete path.
+4. ONLY return raw SPARQL code. Do NOT include markdown backticks (```) or any explanations.
+"""
+
+    raw_sparql = llm.invoke([HumanMessage(content=sparql_prompt)]).content
+    clean_sparql = raw_sparql.replace("```sparql", "").replace("```", "").strip()
+
+    traversed_nodes = []
+    traversed_edges = []
+    graph_evidence = []
+
+    # 2. DYNAMIC GRAPH EXECUTION & PATHWAY EXTRACTION
+    try:
+        # Execute the generated CONSTRUCT query against the RDF graph
+        query_result = kg.query(clean_sparql)
+        
+        # A CONSTRUCT query returns a subset Graph of (subject, predicate, object) triples
+        for s, p, o in query_result:
+            s_str, p_str, o_str = str(s), str(p), str(o)
+            
+            # Record the dynamic nodes and edges for Vis.js highlighting
+            traversed_nodes.extend([s_str, o_str])
+            traversed_edges.append((s_str, p_str, o_str))
+            
+            # Extract readable labels for the AI Synthesis context window
+            s_lbl = str(kg.value(s, RDFS.label) or s_str.split('/')[-1])
+            o_lbl = str(kg.value(o, RDFS.label) or o_str.split('/')[-1])
+            if "w3.org" not in p_str: # Filter out raw rdf:type definitions for cleaner context
+                graph_evidence.append({"source": s_lbl, "predicate": p_str.split('#')[-1], "target": o_lbl})
+
+    except Exception as e:
+        # Graceful fallback if the LLM hallucinates invalid SPARQL syntax
+        print(f"SPARQL Parse Error: {e}")
+        clean_sparql = f"# SPARQL Syntax Error Executing Query\n# Reverting to baseline extraction\n"
+        # Return empty traversals so the graph resets to default view safely
+        traversed_nodes = []
+        traversed_edges = []
+
+    return {
+        "sparql_query": clean_sparql,
+        "traversed_nodes": list(set(traversed_nodes)),
+        "traversed_edges": list(set(traversed_edges)),
+        "graph_evidence": graph_evidence
+    }
+
+
+def sparql_generator_and_traversal_node_back_st(state: GraphRAGState) -> Dict[str, Any]:
     """Select studies, walk three RDF hops, and emit an auditable SPARQL sketch."""
     query_text = state["query"].lower()
 

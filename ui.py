@@ -62,10 +62,10 @@ custom_css = """
 .gr-button-primary { background-color: #d51900 !important; color: white !important; }
 """
 
-with gr.Blocks(css=custom_css, title="iMedical Search | Clinical Trial Intelligence") as demo:
+with gr.Blocks(css=custom_css, title="iMed Search | Clinical Trial Intelligence") as demo:
     gr.HTML(
         """<div style='text-align: center; margin-bottom: 15px;'>
-            <div id='main-title'>iMedical <span style='background-color:#d51900; color:white; padding: 2px 8px; border-radius: 4px;'>Search</span></div>
+            <div id='main-title'>iMed <span style='background-color:#d51900; color:white; padding: 2px 8px; border-radius: 4px;'>Search</span></div>
             <div id='sub-title'>Connected Evidence and Clinical Semantics (GraphRAG Powered)</div>
         </div>"""
     )
