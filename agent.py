@@ -50,8 +50,216 @@ def intent_router_node(state: GraphRAGState) -> Dict[str, Any]:
     res = llm.invoke([HumanMessage(content=prompt)]).content.strip()
     return {"intent": res}
 
-
 def sparql_generator_and_traversal_node(state: GraphRAGState) -> Dict[str, Any]:
+    query_text = state["query"]
+
+    # 1. DYNAMIC SPARQL CONSTRUCT GENERATION
+    sparql_prompt = f"""You are an expert in RDF and SPARQL for Clinical Knowledge Graphs.
+    Generate a valid SPARQL CONSTRUCT query that extracts the exact semantic pathway for this user query: "{query_text}"
+
+    ONTOLOGY SCHEMA:
+    PREFIX cti: <https://w3id.org/cti/ontology#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+    - cti:ClinicalStudy -> usesTreatment -> cti:Treatment -> hasActiveIngredient -> cti:ActiveIngredient -> hasMechanismOfAction -> cti:MechanismOfAction
+    - cti:ClinicalStudy -> usesComparator -> cti:ComparatorTreatment -> hasActiveIngredient -> cti:ActiveIngredient -> hasMechanismOfAction -> cti:MechanismOfAction
+    - cti:ClinicalStudy -> targetsDisease -> cti:DiseaseCondition -> belongsToTherapeuticArea -> cti:TherapeuticArea
+    - cti:ClinicalStudy -> hasPopulation -> cti:Population -> requiresBiomarker -> cti:Biomarker
+    - cti:ClinicalStudy -> hasSafetyReport -> cti:SafetyReport -> reportsEvent -> cti:AdverseEvent -> mappedToPT -> cti:MedDRAPT -> belongsToSOC -> cti:MedDRASOC
+    - cti:ClinicalStudy -> hasScientificResponse -> cti:ScientificResponseDoc -> addressesTopic -> cti:InquiryTopic -> relatesToConcept -> cti:MedicalConcept
+
+    RULES:
+    1. MUST output a CONSTRUCT query.
+    2. Construct the FULL chain of triples from the ClinicalStudy down to the leaf node.
+    3. ONLY return raw SPARQL code. Do NOT include markdown backticks (```).
+    """
+
+    raw_sparql = llm.invoke([HumanMessage(content=sparql_prompt)]).content
+    clean_sparql = raw_sparql.replace("```sparql", "").replace("```", "").strip()
+
+    traversed_nodes = []
+    traversed_edges = []
+    graph_evidence = []
+
+    # 2. DYNAMIC GRAPH EXECUTION
+    try:
+        query_result = kg.query(clean_sparql)
+        
+        if query_result.type != 'CONSTRUCT':
+            raise ValueError("LLM generated a SELECT query instead of CONSTRUCT.")
+
+        for s, p, o in query_result:
+            s_str, p_str, o_str = str(s), str(p), str(o)
+            traversed_nodes.extend([s_str, o_str])
+            traversed_edges.append((s_str, p_str, o_str))
+            
+            s_lbl = str(kg.value(s, RDFS.label) or s_str.split('/')[-1])
+            o_lbl = str(kg.value(o, RDFS.label) or o_str.split('/')[-1])
+            if "w3.org" not in p_str: 
+                graph_evidence.append({"source": s_lbl, "predicate": p_str.split('#')[-1], "target": o_lbl})
+
+    except Exception as e:
+        print(f"SPARQL Execution Error: {e}")
+        pass
+
+    # 3. DEEP FAILSAFE / FALLBACK MECHANISM (Now traverses up to 4 levels deep)
+    if len(traversed_edges) == 0:
+        query_lower = query_text.lower()
+        candidate_studies = []
+        
+        if "amivantamab" in query_lower or "nsclc" in query_lower or "lung" in query_lower:
+            candidate_studies.append("NCT02665364")
+        elif "teclistamab" in query_lower or "bcma" in query_lower or "icans" in query_lower:
+            candidate_studies.append("NCT03145181")
+        elif "daratumumab" in query_lower or "myeloma" in query_lower or "renal" in query_lower or "pk" in query_lower or "pharmacokinetics" in query_lower:
+            candidate_studies.append("NCT04561234")
+        else:
+            candidate_studies = ["NCT04561234", "NCT02665364", "NCT03145181"]
+
+        for study_id in candidate_studies:
+            study_uri = URIRef(f"[https://w3id.org/cti/study/](https://w3id.org/cti/study/){study_id}")
+            if (study_uri, RDF.type, CTI.ClinicalStudy) in kg:
+                traversed_nodes.append(str(study_uri))
+                
+                # Hop 1
+                for _, p1, o1 in kg.triples((study_uri, None, None)):
+                    if isinstance(o1, URIRef) and p1 != RDF.type:
+                        traversed_nodes.extend([str(study_uri), str(o1)])
+                        traversed_edges.append((str(study_uri), str(p1), str(o1)))
+                        
+                        # Hop 2
+                        for _, p2, o2 in kg.triples((o1, None, None)):
+                            if isinstance(o2, URIRef) and p2 != RDF.type:
+                                traversed_nodes.extend([str(o1), str(o2)])
+                                traversed_edges.append((str(o1), str(p2), str(o2)))
+                                
+                                # Hop 3 (Catches Scientific Responses and Mechanisms)
+                                for _, p3, o3 in kg.triples((o2, None, None)):
+                                    if isinstance(o3, URIRef) and p3 != RDF.type:
+                                        traversed_nodes.extend([str(o2), str(o3)])
+                                        traversed_edges.append((str(o2), str(p3), str(o3)))
+                                        
+                                        # Hop 4 (Catches deeply nested MedDRA System Organ Classes)
+                                        for _, p4, o4 in kg.triples((o3, None, None)):
+                                            if isinstance(o4, URIRef) and p4 != RDF.type:
+                                                traversed_nodes.extend([str(o3), str(o4)])
+                                                traversed_edges.append((str(o3), str(p4), str(o4)))
+
+        clean_sparql = "# [NOTE: AI SPARQL returned 0 results. Triggered deep fallback traversal.]\n\n" + clean_sparql
+
+    return {
+        "sparql_query": clean_sparql,
+        "traversed_nodes": list(set(traversed_nodes)),
+        "traversed_edges": list(set(traversed_edges)),
+        "graph_evidence": graph_evidence
+    }
+def sparql_generator_and_traversal_node1111(state: GraphRAGState) -> Dict[str, Any]:
+    query_text = state["query"]
+
+    # 1. DYNAMIC SPARQL CONSTRUCT GENERATION (With 1-Shot Example)
+    sparql_prompt = f"""You are an expert in RDF and SPARQL for Clinical Knowledge Graphs.
+    Generate a valid SPARQL CONSTRUCT query that extracts the exact semantic pathway for this user query: "{query_text}"
+
+    ONTOLOGY SCHEMA:
+    PREFIX cti: <https://w3id.org/cti/ontology#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+    - cti:ClinicalStudy -> usesTreatment -> cti:Treatment -> hasActiveIngredient -> cti:ActiveIngredient -> hasMechanismOfAction -> cti:MechanismOfAction
+    - cti:ClinicalStudy -> usesComparator -> cti:ComparatorTreatment -> hasActiveIngredient -> cti:ActiveIngredient -> hasMechanismOfAction -> cti:MechanismOfAction
+    - cti:ClinicalStudy -> targetsDisease -> cti:DiseaseCondition -> belongsToTherapeuticArea -> cti:TherapeuticArea
+    - cti:ClinicalStudy -> hasPopulation -> cti:Population -> requiresBiomarker -> cti:Biomarker
+    - cti:ClinicalStudy -> hasSafetyReport -> cti:SafetyReport -> reportsEvent -> cti:AdverseEvent -> mappedToPT -> cti:MedDRAPT -> belongsToSOC -> cti:MedDRASOC
+    - cti:ClinicalStudy -> hasScientificResponse -> cti:ScientificResponseDoc -> addressesTopic -> cti:InquiryTopic -> relatesToConcept -> cti:MedicalConcept
+
+    RULES:
+    1. MUST output a CONSTRUCT query. Do not output a SELECT query.
+    2. Construct the FULL chain of triples from the ClinicalStudy down to the leaf node.
+    3. ONLY return raw SPARQL code. Do NOT include markdown backticks (```).
+
+    EXAMPLE TEMPLATE:
+    CONSTRUCT {{
+      ?study cti:usesTreatment ?tx .
+      ?tx cti:hasActiveIngredient ?ai .
+      ?ai cti:hasMechanismOfAction ?moa .
+    }} WHERE {{
+      ?study a cti:ClinicalStudy ; cti:usesTreatment ?tx .
+      ?tx cti:hasActiveIngredient ?ai .
+      ?ai cti:hasMechanismOfAction ?moa .
+      ?ai rdfs:label ?label .
+      FILTER(REGEX(str(?label), "Keyword", "i"))
+    }}
+    """
+
+    raw_sparql = llm.invoke([HumanMessage(content=sparql_prompt)]).content
+    clean_sparql = raw_sparql.replace("```sparql", "").replace("```", "").strip()
+
+    traversed_nodes = []
+    traversed_edges = []
+    graph_evidence = []
+
+    # 2. DYNAMIC GRAPH EXECUTION
+    try:
+        query_result = kg.query(clean_sparql)
+        
+        # Guard against the LLM accidentally generating a SELECT query
+        if query_result.type != 'CONSTRUCT':
+            raise ValueError("LLM generated a SELECT query instead of CONSTRUCT.")
+
+        for s, p, o in query_result:
+            s_str, p_str, o_str = str(s), str(p), str(o)
+            traversed_nodes.extend([s_str, o_str])
+            traversed_edges.append((s_str, p_str, o_str))
+            
+            s_lbl = str(kg.value(s, RDFS.label) or s_str.split('/')[-1])
+            o_lbl = str(kg.value(o, RDFS.label) or o_str.split('/')[-1])
+            if "w3.org" not in p_str: 
+                graph_evidence.append({"source": s_lbl, "predicate": p_str.split('#')[-1], "target": o_lbl})
+
+    except Exception as e:
+        print(f"SPARQL Execution Error: {e}")
+        pass # Allow the script to continue to the fallback below
+
+    # 3. FAILSAFE / FALLBACK MECHANISM
+    # If the LLM's query failed or was too strict and returned 0 nodes, trigger an internal Python traversal.
+    if len(traversed_edges) == 0:
+        query_lower = query_text.lower()
+        candidate_studies = []
+        
+        if "amivantamab" in query_lower or "nsclc" in query_lower or "lung" in query_lower:
+            candidate_studies.append("NCT02665364")
+        elif "teclistamab" in query_lower or "bcma" in query_lower or "icans" in query_lower:
+            candidate_studies.append("NCT03145181")
+        elif "daratumumab" in query_lower or "myeloma" in query_lower or "renal" in query_lower:
+            candidate_studies.append("NCT04561234")
+        else:
+            candidate_studies = ["NCT04561234", "NCT02665364", "NCT03145181"]
+
+        for study_id in candidate_studies:
+            study_uri = URIRef(f"[https://w3id.org/cti/study/](https://w3id.org/cti/study/){study_id}")
+            if (study_uri, RDF.type, CTI.ClinicalStudy) in kg:
+                traversed_nodes.append(str(study_uri))
+                
+                # Broadly highlight the relevant study's pathways to ensure the UI updates
+                for _, p1, o1 in kg.triples((study_uri, None, None)):
+                    if isinstance(o1, URIRef) and p1 != RDF.type:
+                        traversed_nodes.append(str(o1))
+                        traversed_edges.append((str(study_uri), str(p1), str(o1)))
+                        
+                        for _, p2, o2 in kg.triples((o1, None, None)):
+                            if isinstance(o2, URIRef) and p2 != RDF.type:
+                                traversed_nodes.append(str(o2))
+                                traversed_edges.append((str(o1), str(p2), str(o2)))
+
+        clean_sparql = "# [NOTE: AI SPARQL returned 0 results. Triggered internal fallback traversal.]\n\n" + clean_sparql
+
+    return {
+        "sparql_query": clean_sparql,
+        "traversed_nodes": list(set(traversed_nodes)),
+        "traversed_edges": list(set(traversed_edges)),
+        "graph_evidence": graph_evidence
+    }
+
+def sparql_generator_and_traversal_node22222(state: GraphRAGState) -> Dict[str, Any]:
     query_text = state["query"]
 
     # 1. DYNAMIC SPARQL CONSTRUCT GENERATION
