@@ -18,6 +18,10 @@ def build_clinical_knowledge_graph() -> Graph:
     g.bind("cti", CTI)
     g.bind("rdfs", RDFS)
 
+    # Load the ontology schema directly from the .ttl file
+    ##if os.path.exists("cti_ontology.ttl"):
+        ##g.parse("cti_ontology.ttl", format="turtle")
+
     # 1. Clinical Study + Disease + Treatment + Comparator
     for csr in MOCK_SOURCES["Clinical Study Reports"]:
         study_uri = URIRef(f"https://w3id.org/cti/study/{csr['study_id']}")
