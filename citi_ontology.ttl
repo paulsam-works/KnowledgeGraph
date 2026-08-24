@@ -1,0 +1,171 @@
+@prefix cti:  <https://w3id.org/cti/ontology#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dc:   <http://purl.org/dc/elements/1.1/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# ---------------------------------------------------------------------------
+# ONTOLOGY METADATA
+# ---------------------------------------------------------------------------
+<https://w3id.org/cti/ontology> a owl:Ontology ;
+    dc:title "Clinical Trial Intelligence (CTI) Ontology" ;
+    dc:description "An enterprise ontology mapping clinical studies to efficacy, protocols, safety (MedDRA), and medical concepts." ;
+    dc:creator "CTI GraphRAG AI Architecture" ;
+    owl:versionInfo "2.1" .
+
+# ---------------------------------------------------------------------------
+# CORE CLASSES (The Nodes)
+# ---------------------------------------------------------------------------
+
+# 1. Study Anchor
+cti:ClinicalStudy a owl:Class ;
+    rdfs:label "Clinical Study" ;
+    skos:definition "The central anchor representing a distinct clinical trial protocol (e.g., NCT ID)." .
+
+# 2. Disease & Indication
+cti:DiseaseCondition a owl:Class ;
+    rdfs:label "Disease / Condition" ;
+    skos:definition "The target indication (e.g., Multiple Myeloma). Mapped via SNOMED CT." .
+
+cti:TherapeuticArea a owl:Class ;
+    rdfs:label "Therapeutic Area" ;
+    skos:definition "The broader medical discipline (e.g., Hematological Malignancy)." .
+
+# 3. Treatments & Mechanisms
+cti:Treatment a owl:Class ;
+    rdfs:label "Investigational Treatment" ;
+    skos:definition "The primary intervention regimen administered in the study." .
+
+cti:ComparatorTreatment a owl:Class ;
+    rdfs:label "Comparator Treatment" ;
+    skos:definition "The standard-of-care or placebo control arm used for comparison." .
+
+cti:ActiveIngredient a owl:Class ;
+    rdfs:label "Active Ingredient" ;
+    skos:definition "The core pharmacological component (e.g., Daratumumab)." .
+
+cti:MechanismOfAction a owl:Class ;
+    rdfs:label "Mechanism of Action" ;
+    skos:definition "The specific biochemical interaction (e.g., CD38-directed cytolytic antibody)." .
+
+# 4. Protocols & Cohorts
+cti:Population a owl:Class ;
+    rdfs:label "Target Population" ;
+    skos:definition "The demographic cohort defined in the protocol inclusion/exclusion criteria." .
+
+cti:Biomarker a owl:Class ;
+    rdfs:label "Biomarker" ;
+    skos:definition "Predictive or prognostic biological markers required for cohort eligibility." .
+
+# 5. Safety & Pharmacovigilance (MedDRA Hierarchy)
+cti:SafetyReport a owl:Class ;
+    rdfs:label "Safety Report" ;
+    skos:definition "A pharmacovigilance record or E2B document detailing an adverse event." .
+
+cti:AdverseEvent a owl:Class ;
+    rdfs:label "Adverse Event" ;
+    skos:definition "The specific event experienced by the trial subject." .
+
+cti:MedDRAPT a owl:Class ;
+    rdfs:label "MedDRA Preferred Term (PT)" ;
+    skos:definition "The standardized MedDRA diagnostic term for the adverse event." .
+
+cti:MedDRASOC a owl:Class ;
+    rdfs:label "MedDRA System Organ Class (SOC)" ;
+    skos:definition "The highest level MedDRA anatomical grouping (e.g., Immune system disorders)." .
+
+# 6. Scientific Responses & Medical Affairs
+cti:ScientificResponseDoc a owl:Class ;
+    rdfs:label "Scientific Response Document" ;
+    skos:definition "A standard response document (SRD) outlining medical guidance." .
+
+cti:InquiryTopic a owl:Class ;
+    rdfs:label "Inquiry Topic" ;
+    skos:definition "The specific medical question addressed (e.g., SubQ admin in Renal Impairment)." .
+
+cti:MedicalConcept a owl:Class ;
+    rdfs:label "Medical Concept" ;
+    skos:definition "The broader pharmacological or medical classification (e.g., Pharmacokinetics)." .
+
+# ---------------------------------------------------------------------------
+# OBJECT PROPERTIES (The Edges / Relationships)
+# ---------------------------------------------------------------------------
+
+# Disease Relationships
+cti:targetsDisease a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:DiseaseCondition .
+
+cti:belongsToTherapeuticArea a owl:ObjectProperty ;
+    rdfs:domain cti:DiseaseCondition ;
+    rdfs:range cti:TherapeuticArea .
+
+# Treatment Relationships
+cti:usesTreatment a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:Treatment .
+
+cti:usesComparator a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:ComparatorTreatment .
+
+cti:hasActiveIngredient a owl:ObjectProperty ;
+    rdfs:domain [ owl:unionOf (cti:Treatment cti:ComparatorTreatment) ] ;
+    rdfs:range cti:ActiveIngredient .
+
+cti:hasMechanismOfAction a owl:ObjectProperty ;
+    rdfs:domain cti:ActiveIngredient ;
+    rdfs:range cti:MechanismOfAction .
+
+# Protocol Relationships
+cti:hasPopulation a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:Population .
+
+cti:requiresBiomarker a owl:ObjectProperty ;
+    rdfs:domain cti:Population ;
+    rdfs:range cti:Biomarker .
+
+# Safety Relationships
+cti:hasSafetyReport a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:SafetyReport .
+
+cti:reportsEvent a owl:ObjectProperty ;
+    rdfs:domain cti:SafetyReport ;
+    rdfs:range cti:AdverseEvent .
+
+cti:mappedToPT a owl:ObjectProperty ;
+    rdfs:domain cti:AdverseEvent ;
+    rdfs:range cti:MedDRAPT .
+
+cti:belongsToSOC a owl:ObjectProperty ;
+    rdfs:domain cti:MedDRAPT ;
+    rdfs:range cti:MedDRASOC .
+
+# Medical Affairs Relationships
+cti:hasScientificResponse a owl:ObjectProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range cti:ScientificResponseDoc .
+
+cti:addressesTopic a owl:ObjectProperty ;
+    rdfs:domain cti:ScientificResponseDoc ;
+    rdfs:range cti:InquiryTopic .
+
+cti:relatesToConcept a owl:ObjectProperty ;
+    rdfs:domain cti:InquiryTopic ;
+    rdfs:range cti:MedicalConcept .
+
+# ---------------------------------------------------------------------------
+# DATA PROPERTIES (Literal Attributes)
+# ---------------------------------------------------------------------------
+
+cti:studyId a owl:DatatypeProperty ;
+    rdfs:domain cti:ClinicalStudy ;
+    rdfs:range xsd:string .
+
+cti:snomedCode a owl:DatatypeProperty ;
+    rdfs:domain cti:DiseaseCondition ;
+    rdfs:range xsd:string .
